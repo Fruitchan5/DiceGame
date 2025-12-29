@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>Web3 骰宝 - 幸运区间</title>
+    <script src="https://cdn.ethers.io/lib/ethers-5.2.umd.min.js"></script>
+    <style>
+        /* --- 1. 整体色调：淡黄色 --- */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #FFFBE6; /* 淡奶油黄背景 */
+            color: #5D4037; /* 深棕色文字，对比度好 */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            margin: 0;
+        }
+
+        h1 { color: #Fbc02d; text-shadow: 1px 1px 2px rgba(0,0,0,0.1); margin-bottom: 5px; }
+        p.subtitle { color: #8d6e63; font-size: 0.9em; margin-bottom: 30px; }
+
+        /* --- 2. 游戏主卡片 --- */
+        .game-card {
+            background: #ffffff;
+            width: 100%;
+            max-width: 480px;
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(251, 192, 45, 0.2); /* 黄色光晕阴影 */
+            text-align: center;
+            border: 2px solid #FFF9C4;
+        }
+
+        /* --- 3. 透明罩子与骰子 --- */
+        .cover-container {
+            position: relative;
+            width: 300px;
+            height: 180px;
+            margin: 0 auto 20px auto;
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+            perspective: 1000px;
+        }
+
+        /* 透明罩子 CSS */
+        .glass-cover {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 260px;
+            height: 140px;
+            background: rgba(255, 255, 255, 0.4);
+            border: 2px solid rgba(255, 255, 255, 0.8);
+            border-bottom: none;
+            border-radius: 140px 140px 0 0; /* 半圆拱形 */
+            box-shadow: inset 0 0 20px rgba(255, 255, 255, 0.9), 0 5px 15px rgba(0,0,0,0.05);
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        /* 骰子容器 */
+        .dice-row {
+            display: flex;
+            gap: 20px;
+            padding-bottom: 30px;
+            z-index: 5;
+        }
+
+        .dice {
+            width: 60px;
+            height: 60px;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 36px;
+            color: #d32f2f; /* 骰子点数红色 */
+            font-weight: bold;
+            border: 1px solid #eee;
+            transition: transform 0.1s;
+        }
+
+        /* 高速旋转动画 */
+        @keyframes shakeDice {
+            0% { transform: rotate(0deg) translate(0, 0); }
+            25% { transform: rotate(15deg) translate(5px, -10px); }
+            50% { transform: rotate(-10deg) translate(-5px, 5px); }
+            75% { transform: rotate(5deg) translate(5px, 5px); }
+            100% { transform: rotate(0deg) translate(0, 0); }
+        }
+        .shaking {
+            animation: shakeDice 0.1s infinite; /* 0.1秒循环一次，看起来非常快 */
+        }
+
+        /* --- 4. 双滑杆区间选择 --- */
+        .slider-container {
+            position: relative;
+            height: 60px;
+            margin-top: 20px;
+            background: #FFFDE7;
+            border-radius: 10px;
+            padding: 15px;
+        }
+        
+        .range-display {
+            font-weight: bold;
+            color: #F57F17;
+            font-size: 1.2em;
+            margin-bottom: 10px;
+        }
+
+        /* 两个滑块重叠在一起 */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            position: absolute;
+            left: 0;
+            background: transparent;
+            pointer-events: none; /* 让鼠标事件穿透，为了让两个滑块能同时操作 */
+        }
+        
+        /* 启用滑块拇指的鼠标事件 */
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            pointer-events: all;
+            height: 24px;
+            width: 24px;
+            border-radius: 50%;
+            background: #Fbc02d;
+            cursor: pointer;
+            margin-top: -10px;
+            position: relative;
+            z-index: 20;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        
+        /* 滑块轨道背景（只显示一个即可） */
+        .slider-track-bg {
+            width: 100%;
+            height: 6px;
+            background: #e0e0e0;
+            border-radius: 3px;
+            position: absolute;
+            top: 45px;
+            left: 0;
+            z-index: 1;
+        }
+
+        /* --- 5. 底部数据与按钮 --- */
+        .stats-row {
+            display: flex;
+            justify-content: space-between;
+            background: #FFF9C4;
+            padding: 10px 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            font-size: 0.95em;
+        }
+
+        button#playBtn {
+            background: linear-gradient(135deg, #Fbc02d 0%, #F57F17 100%);
+            color: white;
+            border: none;
+            padding: 15px 50px;
+            font-size: 1.1em;
+            border-radius: 50px;
+            cursor: pointer;
+            width: 100%;
+            font-weight: bold;
+            box-shadow: 0 4px 15px rgba(249, 168, 37, 0.4);
+            transition: transform 0.2s;
+        }
+        button#playBtn:active { transform: scale(0.98); }
+        button#playBtn:disabled { background: #ccc; box-shadow: none; cursor: not-allowed; }
+
+        .status-msg { height: 30px; margin-top: 15px; font-weight: bold; }
+        .win { color: #2E7D32; }
+        .lose { color: #C62828; }
+
+    </style>
+</head>
+<body>
+
+    <h1>🎲 幸运区间骰子</h1>
+    <p class="subtitle">区块链公平博彩 · 自定义赔率</p>
+
+    <div class="game-card">
+        <button id="connectBtn" onclick="connectWallet()" style="background:white; border:1px solid #Fbc02d; color:#Fbc02d; padding:8px 20px; border-radius:20px; cursor:pointer; margin-bottom:15px; font-size:0.9em;">
+            🔗 连接钱包 (Sepolia)
+        </button>
+
+        <div class="cover-container">
+            <div class="glass-cover"></div> <div class="dice-row">
+                <div class="dice" id="d1">1</div>
+                <div class="dice" id="d2">2</div>
+                <div class="dice" id="d3">3</div>
+            </div>
+        </div>
+
+        <div class="slider-container">
+            <div class="range-display">
+                目标总和: <span id="rangeVal">10 - 15</span>
+            </div>
+            
+            <div style="position: relative; height: 30px; margin: 0 10px;">
+                <div class="slider-track-bg"></div>
+                <input type="range" id="minRange" min="3" max="18" value="10" step="1" oninput="updateRange('min')">
+                <input type="range" id="maxRange" min="3" max="18" value="15" step="1" oninput="updateRange('max')">
+            </div>
+        </div>
+
+        <div class="stats-row">
+            <div>下注: <input type="number" id="betAmount" value="0.001" step="0.001" style="width:60px; border:1px solid #ddd; border-radius:4px; padding:2px;"> ETH</div>
+            <div>胜率: <span id="probDisplay">--</span>%</div>
+            <div>赔率: <span id="oddsDisplay">--</span>x</div>
+        </div>
+
+        <button id="playBtn" onclick="play()" disabled>开始掷骰子 (Spin)</button>
+        
+        <div id="status" class="status-msg">请先连接钱包</div>
+    </div>
+
+<script>
+    // ================= 配置区 =================
+    // ⚠️⚠️⚠️ 把这里换成你部署好的合约地址！！！
+    const CONTRACT_ADDRESS = "0xYOUR_CONTRACT_ADDRESS_HERE"; 
+    // =========================================
+
+    const ABI = [
+        "function roll(uint8 minSum, uint8 maxSum) public payable",
+        "event GameResult(address player, uint256 bet, uint8 min, uint8 max, uint8 d1, uint8 d2, uint8 d3, uint8 sum, uint256 payout)"
+    ];
+    // 3个骰子和的频数表 (3-18)
+    const FREQUENCIES = [0,0,0,1,3,6,10,15,21,25,27,27,25,21,15,10,6,3,1];
+    let contract, signer;
+
+    // --- 1. 双滑杆逻辑 ---
+    function updateRange(source) {
+        let minInput = document.getElementById('minRange');
+        let maxInput = document.getElementById('maxRange');
+        let minVal = parseInt(minInput.value);
+        let maxVal = parseInt(maxInput.value);
+
+        // 确保 min 不会超过 max
+        if (minVal > maxVal) {
+            if (source === 'min') { maxInput.value = minVal; } 
+            else { minInput.value = maxVal; }
+        }
+
+        // 更新显示
+        document.getElementById('rangeVal').innerText = `${minInput.value} - ${maxInput.value}`;
+        calculateOdds(); // 重新计算赔率
+    }
+
+    // --- 2. 赔率计算 ---
+    function calculateOdds() {
+        let min = parseInt(document.getElementById('minRange').value);
+        let max = parseInt(document.getElementById('maxRange').value);
+        
+        let winningCombos = 0;
+        for(let i=min; i<=max; i++) winningCombos += FREQUENCIES[i];
+        
+        // 防止除0错误
+        if(winningCombos === 0) winningCombos = 1;
+
+        let prob = (winningCombos / 216) * 100;
+        let payout = (216 * 0.98 / winningCombos);
+
+        document.getElementById('probDisplay').innerText = prob.toFixed(1);
+        document.getElementById('oddsDisplay').innerText = payout.toFixed(2);
+    }
+
+    // --- 3. 钱包连接 ---
+    async function connectWallet() {
+        if (!window.ethereum) return alert("请安装 MetaMask");
+        try {
+            await window.ethereum.request({ method: 'eth_requestAccounts' });
+            const provider = new ethers.providers.Web3Provider(window.ethereum);
+            signer = provider.getSigner();
+            contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+            
+            const addr = await signer.getAddress();
+            document.getElementById('connectBtn').innerText = "✅ " + addr.substring(0,6) + "...";
+            document.getElementById('playBtn').disabled = false;
+            document.getElementById('status').innerText = "准备就绪，祝你好运！";
+            
+            calculateOdds();
+            listenEvents(); // 启动监听
+        } catch (e) { 
+            console.error(e);
+            document.getElementById('status').innerText = "连接失败";
+        }
+    }
+
+    // --- 4. 游戏核心逻辑 (带动画) ---
+    async function play() {
+        const min = document.getElementById('minRange').value;
+        const max = document.getElementById('maxRange').value;
+        const bet = document.getElementById('betAmount').value;
+
+        // A. 立即开始动画 (高速旋转)
+        startAnimation(); 
+        document.getElementById('playBtn').disabled = true;
+        document.getElementById('status').innerText = "请在钱包中确认交易...";
+
+        try {
+            // B. 发起交易
+            const tx = await contract.roll(min, max, { value: ethers.utils.parseEther(bet) });
+            
+            document.getElementById('status').innerText = "⛓️ 交易已发送，等待结果 (这可能需要15秒)...";
+            
+            // C. 等待上链结果
+            // 注意：动画会一直转，直到监听到链上的 Result 事件才停止
+            await tx.wait(); 
+            
+        } catch (err) {
+            console.error(err);
+            stopAnimation(); // 失败也要停止动画
+            document.getElementById('status').innerText = "❌ 交易取消或失败";
+            document.getElementById('playBtn').disabled = false;
+        }
+    }
+
+    // --- 5. 动画控制 ---
+    let animInterval;
+    function startAnimation() {
+        const dices = document.querySelectorAll('.dice');
+        dices.forEach(d => d.classList.add('shaking')); // 添加CSS抖动类
+        
+        // 每0.1秒随机变数字，增加视觉混乱感
+        animInterval = setInterval(() => {
+            dices.forEach(d => {
+                d.innerText = Math.floor(Math.random() * 6) + 1;
+            });
+        }, 80);
+    }
+
+    function stopAnimation(d1Val, d2Val, d3Val) {
+        clearInterval(animInterval);
+        const dices = document.querySelectorAll('.dice');
+        dices.forEach(d => d.classList.remove('shaking')); // 移除抖动
+        
+        // 如果有真实结果，显示真实结果；否则显示默认
+        if(d1Val) {
+            document.getElementById('d1').innerText = d1Val;
+            document.getElementById('d2').innerText = d2Val;
+            document.getElementById('d3').innerText = d3Val;
+        }
+    }
+
+    // --- 6. 监听链上结果 ---
+    function listenEvents() {
+        contract.on("GameResult", (player, bet, min, max, d1, d2, d3, sum, payout) => {
+            signer.getAddress().then(myAddr => {
+                // 确保只处理自己的事件
+                if(player === myAddr) {
+                    // 延迟1秒停止动画，让用户看清楚
+                    setTimeout(() => {
+                        stopAnimation(d1, d2, d3); // 停止动画并显示真值
+                        
+                        const profit = ethers.utils.formatEther(payout);
+                        const statusDiv = document.getElementById('status');
+                        
+                        if (parseFloat(profit) > 0) {
+                            statusDiv.innerHTML = `<span class="win">🎉 赢了！点数 ${d1}+${d2}+${d3}=${sum}，赢得 ${profit} ETH</span>`;
+                        } else {
+                            statusDiv.innerHTML = `<span class="lose">😭 输了... 点数 ${sum} 不在 ${min}-${max} 之间</span>`;
+                        }
+                        document.getElementById('playBtn').disabled = false;
+                    }, 1000); // 这里的1000ms是为了符合你说的“旋转1s后停止”的感觉
+                }
+            });
+        });
+    }
+    
+    // 初始化显示
+    calculateOdds();
+</script>
+</body>
+</html>
